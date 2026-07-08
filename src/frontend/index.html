@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scrum Poker Board</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+    <form id="login-view" class="login-card">
+        <h1>Scrum Poker</h1>
+        <p>Enter your name to join the evaluation room</p>
+        
+        <div class="input-group">
+            <label for="usernameInput">Your Name</label>
+            <input type="text" id="usernameInput" placeholder="e.g. Dylan, Camilo...">
+            <p></p>
+        </div>
+
+        <button type="submit" id="signUpBtn" class="btn-primary">Join Room</button>
+    </form>
+
+
+    <div id="game-view" class="game-container hidden">
+        <div class="game-header">
+            <h2>Estimation Session</h2>
+            <p id="responseDisplay" style="font-size: 14px; color: #64748b; margin-top: 4px;">Logged in</p>
+        </div>
+
+        <div class="estimation-section">
+            <div class="section-title">Provide an effort estimate</div>
+            <div class="cards-grid">
+                <button class="poker-card-btn" onclick="selectCard(this, '☕')">☕</button>
+                <button class="poker-card-btn" onclick="selectCard(this, '1')">1</button>
+                <button class="poker-card-btn" onclick="selectCard(this, '2')">2</button>
+                <button class="poker-card-btn" onclick="selectCard(this, '3')">3</button>
+                <button class="poker-card-btn" onclick="selectCard(this, '5')">5</button>
+                <button class="poker-card-btn" onclick="selectCard(this, '8')">8</button>
+                <button class="poker-card-btn" onclick="selectCard(this, '13')">13</button>
+            </div>
+        </div>
+
+        <div class="players-section">
+            <div style="display: flex; justify-content: flex-between; align-items: center; margin-bottom: 16px; gap: 10px;">
+                <div class="section-title" style="margin-bottom: 0; flex-grow: 1;">Participants</div>
+                
+                <button class="btn-secondary" id="delete-btn" style="width: auto; padding: 6px 14px; margin-bottom: 0; font-size: 13px;">
+                    Delete Estimates
+                </button>
+                <button class="btn-secondary" id="reveal-btn" style="width: auto; padding: 6px 14px; margin-bottom: 0; font-size: 13px;">
+                    Show
+                </button>
+            </div>
+
+            <table class="players-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th style="text-align: right; width: 120px;">Story Points</th>
+                    </tr>
+                </thead>
+                <tbody id="players-list-body">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script type="module" src="main.ts"></script>
+</body>
+</html>
