@@ -147,7 +147,7 @@ Possible `type` values:
 | `RESET` | All estimates are cleared |
 | `VISIBILITY_UPDATED` | The show/hide toggle is flipped |
  
-The current implementation doesn't branch on `type` — any incoming message simply triggers a full refresh of the participant list. The `type` field is included so this can be made more granular later if needed.
+The only current implemenation using these types is with RESET, for when the delete estimation button is pressed, it deselects the previously selected card for all connected clients
  
 ## Dependencies
  
