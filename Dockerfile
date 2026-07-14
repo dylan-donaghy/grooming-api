@@ -10,4 +10,4 @@ RUN npm install -g concurrently
 
 EXPOSE 3000/tcp 5173/tcp
 
-CMD npx concurrently "npm run dev" "npm run frontend"
+CMD npx concurrently "npm run dev" "npm run frontend -- --host 0.0.0.0"
