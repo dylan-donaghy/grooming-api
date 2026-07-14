@@ -160,22 +160,28 @@ async function deleteEstimates() {
     }
 }
 
+function checkVotingComplete(users: User[]) {
+    let complete: Boolean = true;
+    users.forEach(user => {
+        if(user.estimation === null){
+            complete = false;
+        }
+    });
+    return complete;
+}
+
 //toggles visibility from true to false or viceversa
 async function toggleVisibility() {
     try {
+        const data = await apiGet<UsersResponse>('/api/users');
+
+        if (!checkVotingComplete(data.users)) {
+            console.log("Not everyone has voted yet");
+            return;
+        }
+
         const response = await apiPost<{ visible: boolean }>('/api/toggleVisibility', {});
         console.log("Toggle Response: ", response);
-
-        if (!revealBtn) return;
-
-        //if estimation is visible, button will read "Hide"
-        if (response.visible === true) {
-            revealBtn.innerHTML = 'Hide';
-        }
-        //if estimation is hidden, button will read "Show"
-        else {
-            revealBtn.innerHTML = 'Show';
-        }
     }
     catch (error) {
         console.error("Toggle failed: ", error);
@@ -194,15 +200,31 @@ async function refreshUserList() {
     }
 }
 
+
+const tbody = document.getElementById('players-list-body');
+
 //display all users
 function renderUserList(users: User[], visible: boolean) {
-    const tbody = document.getElementById('players-list-body');
 
-    if (!tbody) {
+    if (!revealBtn) {
         return;
     }
 
+    revealBtn.innerHTML = visible ? 'Hide' : 'Show';
+
+    if (checkVotingComplete(users)) {
+            revealBtn.style.borderColor = '';
+        } 
+    else {
+        revealBtn.style.borderColor = '#ef4444';
+    }
+    createRows(users, visible);
+}
+
+function createRows(users: User[], visible: boolean) {
     //clear all users visually
+    if(!tbody) return;
+
     tbody.innerHTML = '';
 
     //creates new row for each additional user
@@ -235,9 +257,7 @@ function renderUserList(users: User[], visible: boolean) {
         else {
             //Has voted, but estimates are hidden — show a placeholder instead
             badge.textContent = '?';
-            badge.classList.add('hidden-vote');
         }
-
         voteCell.appendChild(badge);
         row.appendChild(nameCell);
         row.appendChild(voteCell);

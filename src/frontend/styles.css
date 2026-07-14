@@ -247,5 +247,4 @@
         .vote-badge.hidden-vote {
             background: #e2e8f0;
             border-color: #cbd5e1;
-            color: transparent; /* Hides the number text entirely until reveal */
         }

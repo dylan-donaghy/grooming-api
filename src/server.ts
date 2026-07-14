@@ -21,6 +21,10 @@ app.post('/api/signup', (req: Request, res: Response) => {
 
   const user = addUser(name);
 
+  if(getVisibility()){
+    toggleVisibility();
+  }
+
   res.json({data: {id: user.id, name: user.name}});
 
   broadcast({ type: 'USER_JOINED'});
