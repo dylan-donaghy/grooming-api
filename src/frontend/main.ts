@@ -8,7 +8,7 @@ type UsersResponse = {
 };
 
 //Open a persistent WebSocket connection to the server
-const socket = new WebSocket('ws://0.0.0.0:3000');
+const socket = new WebSocket(`ws://${window.location.host}`);
 
 //Tracks which user this browser tab is signed in as
 let currentUserId: string | null = null;
