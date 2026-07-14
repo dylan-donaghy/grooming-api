@@ -26,9 +26,6 @@ spec:
         - containerPort: 3000
           name: backend
           protocol: TCP
-        - containerPort: 5173
-          name: frontend
-          protocol: TCP
         resources:
           limits:
             memory: 512Mi
@@ -68,7 +65,7 @@ spec:
   - name: http
     port: 80
     protocol: TCP
-    targetPort: frontend
+    targetPort: backend
   selector:
     app.kubernetes.io/name: grooming-api
   sessionAffinity: None

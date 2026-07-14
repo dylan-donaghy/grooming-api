@@ -28,14 +28,14 @@ Built as a hand-on exercise to practice Node.js, TypeScript, Express, and WebSoc
 ```bash
    npm run dev
 ```
-   This runs `src/server.ts` directly via Node (using `--watch`, so the server automatically restarts whenever you save a server file). The API will be running at `http://localhost:3000`.
+   This runs `src/server.ts` directly via Node (using `--watch`, so the server automatically restarts whenever you save a server file). The API and client will be running at `http://localhost:3000`.
  
 3. In a separate terminal, compile and serve the frontend:
 ```bash
    npm run frontend
 ```
  
-   This compiles `main.ts`/`api.ts` into plain JavaScript, then serves `index.html` and the compiled files. Visit the URL printed in the terminal (typically `http://localhost:5173` if using vite) to open the app.
+   This compiles `main.ts`/`api.ts` into plain JavaScript, then serves `index.html` and the compiled files.
  
 4. Open the app in two or more browser tabs to see live updates working, actions taken in one tab (signing up, voting, resetting, toggling visibility) will automatically appear in the others.
 **Note:** Data is stored in memory only. Every time the server restarts (including automatically, via `--watch`, whenever you save a server file), all signed-up users and their estimates are cleared.

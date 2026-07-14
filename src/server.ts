@@ -5,6 +5,8 @@ import type { Request, Response } from 'express';
 import cors from "cors";
 import { addUser, getAllUsers, findUser, resetAllEstimations, getVisibility, toggleVisibility } from './routes/users.ts'
 import { WebSocketServer, type WebSocket } from 'ws';
+import { createProxyMiddleware } from 'http-proxy-middleware';
+import { styleText } from 'util';
 
 const app = express();
 app.use(express.json());
@@ -73,7 +75,7 @@ app.post('/api/toggleVisibility', (req: Request, res: Response) => {
 
 //Server health check
 const server = app.listen(3000, () => {
-  console.log("Server running on port 3000");
+  console.log(`Server running on ${styleText(["blue", "bold", "underline"], 'http://localhost:3000')}`);
 });
 
 const wss = new WebSocketServer({server});
@@ -90,7 +92,7 @@ wss.on('connection', (ws) => {
 });
 
 //Server health check
-app.get('/', (req: Request, res: Response) => {
+app.get('/health', (req: Request, res: Response) => {
     res.send('Scrum Poker Backend API is running successfully!');
 });
 
@@ -103,6 +105,15 @@ app.get('/api/users', (req: Request, res: Response) => {
     }
   });
 });
+
+// Catch-all: forward anything unmatched to another port on the same machine
+app.use(
+  '/',
+  createProxyMiddleware({
+    target: 'http://localhost:5173', // the other service's port
+    changeOrigin: true,
+  })
+);
 
 //Broadcasts changes to all connected clients
 function broadcast(message: unknown) {

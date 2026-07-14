@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "node --watch src/server.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "frontend": "vite src/frontend"
+    "frontend": "vite src/frontend > /dev/null"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -26,6 +26,7 @@
   "dependencies": {
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "http-proxy-middleware": "^4.2.0",
     "ws": "^8.21.0"
   }
 }

@@ -1,5 +1,5 @@
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-    const response = await window.fetch(`http://localhost:3000${path}`, {
+    const response = await window.fetch(path, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -19,8 +19,9 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function apiGet<T>(path: string,): Promise<T> {
-    const response = await window.fetch(`http://localhost:3000${path}`, {
-        method: 'GET'
+    const response = await window.fetch(path, {
+        method: 'GET',
+        cache: 'no-store'
     });
 
     const { data, errors } = await response.json();

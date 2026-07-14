@@ -8,6 +8,6 @@ COPY src ./src
 RUN npm install
 RUN npm install -g concurrently
 
-EXPOSE 3000/tcp 5173/tcp
+EXPOSE 3000/tcp
 
-CMD npx concurrently "npm run dev" "npm run frontend -- --host 0.0.0.0"
+CMD npx concurrently "npm run dev" "npm run frontend"
