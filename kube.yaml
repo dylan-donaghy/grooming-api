@@ -20,7 +20,7 @@ spec:
         - name: __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
           value: .symphony.com
         image: us-east4-docker.pkg.dev/sym-prod-mr-tools-01/rtc-docker-us-east4/grooming-api:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         name: grooming-api
         ports:
         - containerPort: 3000
