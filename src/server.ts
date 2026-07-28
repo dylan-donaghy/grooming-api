@@ -7,6 +7,7 @@ import { addUser, getState, findUser, removeUser, setEstimation, resetAllEstimat
 import { WebSocketServer, WebSocket } from 'ws';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { styleText } from 'util';
+import type { Socket } from 'net';
 
 const app = express();
 app.use(express.json());
@@ -85,7 +86,28 @@ const server = app.listen(3000, () => {
   console.log(`Server running on ${styleText(["blue", "bold", "underline"], 'http://localhost:3000')}`);
 });
 
-const wss = new WebSocketServer({server});
+//The path our own clients connect on. Vite's dev server also opens a websocket
+//for hot reload, and because the page is served through the proxy below, Vite
+//aims that socket at this port too. Accepting every upgrade meant we adopted the
+//hot-reload socket as if it were a participant, which is why one browser tab
+//logged two connections.
+export const WS_PATH = '/ws';
+
+//noServer so we can route upgrades ourselves rather than claiming all of them
+const wss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (req, socket, head) => {
+  const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+
+  if (pathname === WS_PATH) {
+    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
+    return;
+  }
+
+  //Anything else belongs to the frontend dev server, hot reload included.
+  //The upgrade event always hands us a net.Socket, it is just typed as a Duplex.
+  frontendProxy.upgrade(req, socket as Socket, head);
+});
 
 //Which user, if any, each open connection belongs to. Clients announce
 //themselves with an IDENTIFY message once they know their own id.
@@ -214,13 +236,12 @@ app.get('/api/users', (req: Request, res: Response) => {
 });
 
 // Catch-all: forward anything unmatched to another port on the same machine
-app.use(
-  '/',
-  createProxyMiddleware({
-    target: 'http://localhost:5173', // the other service's port
-    changeOrigin: true,
-  })
-);
+const frontendProxy = createProxyMiddleware({
+  target: 'http://localhost:5173', // the other service's port
+  changeOrigin: true,
+});
+
+app.use('/', frontendProxy);
 
 //Sends to a single client. A socket that has started closing throws on send, so
 //this is guarded, otherwise one dead connection would abort a whole broadcast

@@ -56,7 +56,9 @@ function loadSession(): { id: string; name: string } | null {
 }
 
 function connect(): void {
-    socket = new WebSocket(`${window.location.protocol.replace('http','ws')}//${window.location.host}`);
+    //Must match WS_PATH on the server. Connecting at the root would also pick up
+    //Vite's hot-reload socket, which shares this host in development.
+    socket = new WebSocket(`${window.location.protocol.replace('http','ws')}//${window.location.host}/ws`);
 
     socket.addEventListener('open', () => {
         console.log("Connected to server via webSocket");
