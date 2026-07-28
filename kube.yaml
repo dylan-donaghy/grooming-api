@@ -4,6 +4,8 @@ metadata:
   name: grooming-api
   namespace: rtc-namespaces
 spec:
+  # Must stay at 1. The board is held in memory in the process, so a second
+  # replica would serve a separate room and split the participants between them.
   replicas: 1
   selector:
     matchLabels:

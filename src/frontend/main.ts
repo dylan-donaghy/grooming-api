@@ -22,19 +22,95 @@ const cardButtons = Array.from(
 //The last board the server sent us, so click handlers can read current state
 let board: BoardState | null = null;
 
-const socket = new WebSocket(`${window.location.protocol.replace('http','ws')}//${window.location.host}`);
+//Reconnect delay, doubled on each consecutive failure so a restarting server
+//doesn't get hammered by everyone in the call at once.
+const RECONNECT_MIN_MS = 1_000;
+const RECONNECT_MAX_MS = 15_000;
+let reconnectDelay = RECONNECT_MIN_MS;
 
-socket.addEventListener('open', () => {
-    console.log("Connected to server via webSocket");
-});
+let socket: WebSocket | null = null;
 
-socket.addEventListener('message', (event) => {
-    const message = JSON.parse(event.data);
+//Survives a refresh, so reloading rejoins the same seat instead of creating a
+//second phantom participant who never votes.
+const SESSION_KEY = 'scrum-poker-session';
 
-    if (message.type === 'STATE') {
-        applyState(message.state);
+function saveSession(id: string, name: string): void {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id, name }));
+}
+
+function clearSession(): void {
+    sessionStorage.removeItem(SESSION_KEY);
+}
+
+function loadSession(): { id: string; name: string } | null {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+
+    try {
+        const parsed = JSON.parse(raw);
+        return typeof parsed?.id === 'string' && typeof parsed?.name === 'string' ? parsed : null;
     }
-});
+    catch {
+        return null;
+    }
+}
+
+function connect(): void {
+    socket = new WebSocket(`${window.location.protocol.replace('http','ws')}//${window.location.host}`);
+
+    socket.addEventListener('open', () => {
+        console.log("Connected to server via webSocket");
+        reconnectDelay = RECONNECT_MIN_MS;
+
+        //A fresh connection means a fresh version sequence. The server restarts
+        //its counter at zero, so holding on to the old high-water mark here
+        //would make us ignore every update from then on.
+        renderedVersion = -1;
+
+        //Tell the server who we are so it knows to keep our seat, and so it can
+        //release it when we really do leave.
+        if (currentUserId) {
+            socket?.send(JSON.stringify({ type: 'IDENTIFY', userId: currentUserId }));
+        }
+
+        setStatus("");
+    });
+
+    socket.addEventListener('message', (event) => {
+        const message = JSON.parse(event.data);
+
+        if (message.type === 'STATE') {
+            applyState(message.state);
+        }
+        else if (message.type === 'UNKNOWN_USER') {
+            //The server no longer has us, almost always because it restarted
+            handleSessionLost();
+        }
+    });
+
+    socket.addEventListener('close', () => {
+        //We were disconnected, so we missed every update in the meantime. Say so
+        //rather than leaving a frozen board that looks current.
+        setStatus("Reconnecting...");
+
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+    });
+
+    socket.addEventListener('error', () => socket?.close());
+}
+
+//Sends us back to the join screen when our seat no longer exists
+function handleSessionLost(): void {
+    clearSession();
+    currentUserId = null;
+    board = null;
+    renderedVersion = -1;
+
+    document.getElementById('game-view')?.classList.add('hidden');
+    document.getElementById('login-view')?.classList.remove('hidden');
+    showSignUpError("The session restarted. Please rejoin.");
+}
 
 signUpForm?.addEventListener('submit', sendSignUp);
 deleteEstimatesBtn?.addEventListener('click', deleteEstimates);
@@ -112,6 +188,12 @@ async function sendSignUp(e: SubmitEvent) {
         const data = await apiPost<User>('/api/signup', { name: enteredName });
 
         currentUserId = data?.id ?? null;
+
+        if (currentUserId) {
+            saveSession(currentUserId, enteredName);
+            socket?.send(JSON.stringify({ type: 'IDENTIFY', userId: currentUserId }));
+        }
+
         navigateToGameView(enteredName);
         await refreshBoard();
     }
@@ -144,7 +226,10 @@ async function selectCard(value: string) {
     }
     catch (error) {
         console.error("Estimate submission failed: ", error);
-        setStatus("Your vote didn't save. Please reload and rejoin.");
+
+        //Our seat is gone, so silently dropping the vote would leave the room
+        //waiting on someone who can no longer vote.
+        handleSessionLost();
     }
 }
 
@@ -223,6 +308,22 @@ function renderRevealButton(users: User[], visible: boolean) {
     //Red outline while the room still can't be revealed
     revealBtn.style.borderColor = visible || allUsersHaveVoted(users) ? '' : '#ef4444';
 }
+
+//Restores a refreshed tab into its existing seat, then opens the connection.
+//The server holds a seat for a short grace period after a socket drops, so a
+//reload lands back on the same user rather than adding a duplicate.
+function start(): void {
+    const session = loadSession();
+
+    if (session) {
+        currentUserId = session.id;
+        navigateToGameView(session.name);
+    }
+
+    connect();
+}
+
+start();
 
 function createRows(users: User[], visible: boolean) {
     //clear all users visually

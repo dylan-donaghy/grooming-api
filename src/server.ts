@@ -3,7 +3,7 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import cors from "cors";
-import { addUser, getState, setEstimation, resetAllEstimations, setVisibility, allUsersHaveVoted } from './routes/users.ts'
+import { addUser, getState, findUser, removeUser, setEstimation, resetAllEstimations, setVisibility, allUsersHaveVoted } from './routes/users.ts'
 import { WebSocketServer, WebSocket } from 'ws';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { styleText } from 'util';
@@ -86,21 +86,122 @@ const server = app.listen(3000, () => {
 });
 
 const wss = new WebSocketServer({server});
-const clients: Set<WebSocket> = new Set(); //Use set as clients are always unique
+
+//Which user, if any, each open connection belongs to. Clients announce
+//themselves with an IDENTIFY message once they know their own id.
+const clients: Map<WebSocket, { userId: string | null; isAlive: boolean }> = new Map();
+
+//The ingress closes idle connections after 60 seconds, so keep traffic flowing.
+//This doubles as liveness detection: a socket that misses a pong is dropped,
+//which is what stops half-dead connections from lingering in the client map.
+const HEARTBEAT_MS = 30_000;
+
+//A refresh briefly looks identical to leaving, so wait before removing someone.
+const DISCONNECT_GRACE_MS = 10_000;
+const pendingRemovals: Map<string, NodeJS.Timeout> = new Map();
 
 wss.on('connection', (ws) => {
   console.log("A client connected via WebSocket");
-  clients.add(ws);
+  clients.set(ws, { userId: null, isAlive: true });
 
   //Send the current board immediately so a new or reconnecting tab is correct
   //without having to wait for somebody else to do something.
   send(ws, { type: 'STATE', state: getState() });
 
+  ws.on('pong', () => {
+    const info = clients.get(ws);
+    if (info) info.isAlive = true;
+  });
+
+  ws.on('message', (raw) => {
+    let message: { type?: string; userId?: unknown };
+
+    try {
+      message = JSON.parse(raw.toString());
+    }
+    catch {
+      console.error("Ignoring unparseable client message");
+      return;
+    }
+
+    if (message.type !== 'IDENTIFY' || typeof message.userId !== 'string') return;
+
+    const info = clients.get(ws);
+    if (!info) return;
+
+    //A stored id from before a restart no longer exists, so tell the client to
+    //rejoin rather than leaving it sitting on a board it can't vote on.
+    if (!findUser(message.userId)) {
+      send(ws, { type: 'UNKNOWN_USER' });
+      return;
+    }
+
+    info.userId = message.userId;
+    cancelPendingRemoval(message.userId);
+  });
+
   ws.on('close', () => {
     console.log("A client disconnected");
+    const info = clients.get(ws);
     clients.delete(ws);
+
+    if (info?.userId) {
+      schedulePendingRemoval(info.userId);
+    }
   });
 });
+
+//Drops a user once they have been gone for the grace period. Without this they
+//stayed on the board forever with no vote, which blocked reveal for the whole
+//room as soon as anyone closed a tab.
+function schedulePendingRemoval(userId: string): void {
+  if (hasOpenConnection(userId) || pendingRemovals.has(userId)) return;
+
+  const timer = setTimeout(() => {
+    pendingRemovals.delete(userId);
+
+    if (hasOpenConnection(userId)) return;
+
+    if (removeUser(userId)) {
+      console.log(`Removed user ${userId} after disconnect`);
+      broadcastState();
+    }
+  }, DISCONNECT_GRACE_MS);
+
+  pendingRemovals.set(userId, timer);
+}
+
+function cancelPendingRemoval(userId: string): void {
+  const timer = pendingRemovals.get(userId);
+  if (!timer) return;
+
+  clearTimeout(timer);
+  pendingRemovals.delete(userId);
+}
+
+//True if this user still has at least one live tab, e.g. a second window
+function hasOpenConnection(userId: string): boolean {
+  for (const info of clients.values()) {
+    if (info.userId === userId) return true;
+  }
+  return false;
+}
+
+const heartbeat = setInterval(() => {
+  clients.forEach((info, ws) => {
+    //No pong since the last round, so treat the connection as gone
+    if (!info.isAlive) {
+      console.log("Terminating an unresponsive client");
+      ws.terminate();
+      return;
+    }
+
+    info.isAlive = false;
+    ws.ping();
+  });
+}, HEARTBEAT_MS);
+
+wss.on('close', () => clearInterval(heartbeat));
 
 //Server health check
 app.get('/health', (req: Request, res: Response) => {
@@ -139,5 +240,5 @@ function send(client: WebSocket, message: unknown): void {
 //clients never have to fetch it themselves and can't race each other.
 function broadcastState(): void {
   const message = { type: 'STATE', state: getState() };
-  clients.forEach(client => send(client, message));
+  clients.forEach((_info, client) => send(client, message));
 }
