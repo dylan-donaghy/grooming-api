@@ -1,45 +1,59 @@
 import { apiPost, apiGet } from "./api.ts";
-import { type User } from "../routes/users.ts";
-
-//Shape of the response returned by GET /api/users
-type UsersResponse = {
-    users: User[];
-    visible: boolean;
-};
-
-//Open a persistent WebSocket connection to the server
-const socket = new WebSocket(`${window.location.protocol.replace('http','ws')}//${window.location.host}`);
+import { type User, type BoardState } from "../routes/users.ts";
 
 //Tracks which user this browser tab is signed in as
 let currentUserId: string | null = null;
 
+//Version of the most recent board we rendered. Snapshots that aren't newer than
+//this are dropped, so a slow response arriving late can't roll the UI backwards.
+let renderedVersion = -1;
+
 const errorMsg = document.querySelector('.input-group p') as HTMLParagraphElement | null;
 const signUpForm = document.getElementById('login-view') as HTMLFormElement | null;
 const nameBox = document.getElementById('usernameInput') as HTMLInputElement | null;
-const txtDisplayName = document.getElementById('responseDisplay') as HTMLLabelElement | null;
+const txtDisplayName = document.getElementById('responseDisplay') as HTMLParagraphElement | null;
 const deleteEstimatesBtn = document.getElementById('delete-btn') as HTMLButtonElement | null;
 const revealBtn = document.getElementById('reveal-btn') as HTMLButtonElement | null;
+const tbody = document.getElementById('players-list-body');
+const cardButtons = Array.from(
+    document.querySelectorAll('.poker-card-btn')
+) as HTMLButtonElement[];
 
-//Runs once when the WebSocket connection is successfully established.
+//The last board the server sent us, so click handlers can read current state
+let board: BoardState | null = null;
+
+const socket = new WebSocket(`${window.location.protocol.replace('http','ws')}//${window.location.host}`);
+
 socket.addEventListener('open', () => {
     console.log("Connected to server via webSocket");
 });
 
 socket.addEventListener('message', (event) => {
     const message = JSON.parse(event.data);
-    console.log("Message received from server: ", message);
 
-    //if estimations being reset, remove highlighting on previously selected card
-    if (message.type === 'RESET') {
-        const allCards = document.querySelectorAll('.poker-card-btn');
-        allCards.forEach(card => card.classList.remove('selected'));
+    if (message.type === 'STATE') {
+        applyState(message.state);
     }
-    refreshUserList();
 });
 
 signUpForm?.addEventListener('submit', sendSignUp);
 deleteEstimatesBtn?.addEventListener('click', deleteEstimates);
 revealBtn?.addEventListener('click', toggleVisibility);
+cardButtons.forEach(button => {
+    button.addEventListener('click', () => selectCard(button.dataset.value ?? ''));
+});
+
+//Accepts a board snapshot if it is newer than what is on screen
+function applyState(state: BoardState): void {
+    if (state.version <= renderedVersion) {
+        console.log(`Ignoring stale state v${state.version}, already at v${renderedVersion}`);
+        return;
+    }
+
+    renderedVersion = state.version;
+    board = state;
+    render(state);
+}
 
 //Displays a validation error message
 function showSignUpError(message: string): void {
@@ -72,7 +86,6 @@ function navigateToGameView(name: string): void {
 //Runs when the signup form is submitted
 async function sendSignUp(e: SubmitEvent) {
     e.preventDefault();
-    console.log("Sign Up Button Pressed");
 
     if (!nameBox) {
         console.error("Could not find usernameInput element");
@@ -96,20 +109,15 @@ async function sendSignUp(e: SubmitEvent) {
     }
 
     try {
-        const data = await apiPost<User>('/api/signup', {
-            name: enteredName
-        });
-        console.log("Server response:", data);
+        const data = await apiPost<User>('/api/signup', { name: enteredName });
 
         currentUserId = data?.id ?? null;
-        refreshUserList();
         navigateToGameView(enteredName);
+        await refreshBoard();
     }
     catch (error) {
         console.error("Sign up failed:", error);
-        if (txtDisplayName) {
-            txtDisplayName.innerText = "Error signing up. Check console.";
-        }
+        showSignUpError("Could not join the room. Please try again.");
     }
 }
 
@@ -119,106 +127,101 @@ nameBox?.addEventListener('input', () => {
     if (nameBox) nameBox.style.borderColor = '#cbd5e1';
 });
 
-//when user selectes a card on screen
-async function selectCard(button: HTMLButtonElement, value: string) {
-    console.log("Card selected: ", value);
-
-    //highlight selected card
-    const allCards = document.querySelectorAll('.poker-card-btn');
-    allCards.forEach(card => card.classList.remove('selected'));
-    button.classList.add('selected');
-
+//when user selects a card on screen
+async function selectCard(value: string) {
     if (!currentUserId) {
         console.error("Cannot submit estimate, no user signed in");
         return;
     }
 
     try {
-        const response = await apiPost<User>('/api/estimation', {
+        await apiPost<User>('/api/estimation', {
             userId: currentUserId,
             estimation: value
         });
-        console.log("Server Response: ", response);
-        refreshUserList();
+        //No local highlighting here, the card comes back selected via the
+        //broadcast, which keeps what we show identical to what the server holds.
     }
     catch (error) {
         console.error("Estimate submission failed: ", error);
+        setStatus("Your vote didn't save. Please reload and rejoin.");
     }
 }
-
-(window as any).selectCard = selectCard;
 
 //when any user clicks delete estimates
 async function deleteEstimates() {
     try {
-        console.log("Deleting");
-        const response = await apiPost('/api/resetEstimation', {});
-        console.log("Reset response: ", response);
+        await apiPost('/api/resetEstimation', {});
     }
     catch (error) {
         console.error("Reset Failed: ", error);
     }
 }
 
-function checkVotingComplete(users: User[]) {
-    let complete: Boolean = true;
-    users.forEach(user => {
-        if(user.estimation === null){
-            complete = false;
-        }
-    });
-    return complete;
-}
-
-//toggles visibility from true to false or viceversa
+//Asks for the opposite of whatever the server last told us, by explicit value
 async function toggleVisibility() {
-    try {
-        const data = await apiGet<UsersResponse>('/api/users');
+    const wantVisible = !(board?.visible ?? false);
 
-        if (!checkVotingComplete(data.users)) {
-            console.log("Not everyone has voted yet");
-            return;
-        }
-
-        const response = await apiPost<{ visible: boolean }>('/api/toggleVisibility', {});
-        console.log("Toggle Response: ", response);
-    }
-    catch (error) {
-        console.error("Toggle failed: ", error);
-    }
-    refreshUserList();
-}
-
-//refreshes user list when a change is made
-async function refreshUserList() {
-    try {
-        const data = await apiGet<UsersResponse>('/api/users');
-        renderUserList(data.users, data.visible);
-    }
-    catch (error) {
-        console.error("Failed to refresh user list: ", error);
-    }
-}
-
-
-const tbody = document.getElementById('players-list-body');
-
-//display all users
-function renderUserList(users: User[], visible: boolean) {
-
-    if (!revealBtn) {
+    if (wantVisible && !allUsersHaveVoted(board?.users ?? [])) {
+        setStatus("Everyone needs to vote before revealing");
         return;
     }
 
+    try {
+        await apiPost<{ visible: boolean }>('/api/visibility', { visible: wantVisible });
+        setStatus("");
+    }
+    catch (error) {
+        console.error("Toggle failed: ", error);
+        setStatus(error instanceof Error ? error.message : "Could not change visibility");
+    }
+}
+
+//Pulls the board over HTTP, used on the initial load
+async function refreshBoard() {
+    try {
+        applyState(await apiGet<BoardState>('/api/users'));
+    }
+    catch (error) {
+        console.error("Failed to refresh board: ", error);
+    }
+}
+
+function allUsersHaveVoted(users: User[]): boolean {
+    return users.length > 0 && users.every(user => user.estimation !== null);
+}
+
+function setStatus(message: string): void {
+    if (txtDisplayName) {
+        txtDisplayName.innerText = message;
+    }
+}
+
+//Paints the whole UI from one snapshot
+function render(state: BoardState) {
+    renderCards(state.users);
+    renderRevealButton(state.users, state.visible);
+    createRows(state.users, state.visible);
+}
+
+//Highlights whichever card matches our own vote on the server. Deriving this
+//from state rather than from the click means a reset clears it everywhere,
+//including on tabs that were disconnected when the reset happened.
+function renderCards(users: User[]) {
+    const me = users.find(u => u.id === currentUserId);
+
+    cardButtons.forEach(button => {
+        button.classList.toggle('selected', !!me && button.dataset.value === me.estimation);
+    });
+}
+
+function renderRevealButton(users: User[], visible: boolean) {
+    if (!revealBtn) return;
+
     revealBtn.innerHTML = visible ? 'Hide' : 'Show';
 
-    if (checkVotingComplete(users)) {
-            revealBtn.style.borderColor = '';
-        } 
-    else {
-        revealBtn.style.borderColor = '#ef4444';
-    }
-    createRows(users, visible);
+    //Red outline while the room still can't be revealed
+    revealBtn.style.borderColor = visible || allUsersHaveVoted(users) ? '' : '#ef4444';
 }
 
 function createRows(users: User[], visible: boolean) {

@@ -3,8 +3,8 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import cors from "cors";
-import { addUser, getAllUsers, findUser, resetAllEstimations, getVisibility, toggleVisibility } from './routes/users.ts'
-import { WebSocketServer, type WebSocket } from 'ws';
+import { addUser, getState, setEstimation, resetAllEstimations, setVisibility, allUsersHaveVoted } from './routes/users.ts'
+import { WebSocketServer, WebSocket } from 'ws';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { styleText } from 'util';
 
@@ -23,13 +23,9 @@ app.post('/api/signup', (req: Request, res: Response) => {
 
   const user = addUser(name);
 
-  if(getVisibility()){
-    toggleVisibility();
-  }
-
   res.json({data: {id: user.id, name: user.name}});
 
-  broadcast({ type: 'USER_JOINED'});
+  broadcastState();
 });
 
 //POST route for setting user estimation
@@ -41,39 +37,50 @@ app.post('/api/estimation', (req: Request, res: Response) => {
     return res.status(400).json({ errors: [{ message: 'userId is required' }] });
   }
 
-  const user = findUser(userId);
-  
-  //Checks that a user was found
+  if (estimation !== null && typeof estimation !== 'string') {
+    return res.status(400).json({ errors: [{ message: 'estimation must be a string or null' }] });
+  }
+
+  const user = setEstimation(userId, estimation);
+
+  //The user is gone, most likely because the server restarted since they joined.
+  //The client turns this into a prompt to rejoin rather than swallowing it.
   if (!user){
     return res.status(404).json({ errors: [{ message: 'User not found'}] });
   }
 
-  user.estimation = estimation;
-  console.log("User after update: ", user);
   res.json({ data: { id: user.id, name: user.name, estimation: user.estimation}});
 
-  broadcast({ type: 'ESTIMATION_UPDATED'});
+  broadcastState();
 })
 
 //POST route for resetting all estimations
 app.post('/api/resetEstimation', (req: Request, res: Response ) => {
   resetAllEstimations();
-  console.log("All estimations reset. Current users: ", getAllUsers());
-  res.json({ data: { message: 'All estimations have been reset' } });
+  res.json({ data: getState() });
 
-  broadcast({ type: 'RESET'});
+  broadcastState();
 });
 
-//POST route for toggling the visibility for estimations
-app.post('/api/toggleVisibility', (req: Request, res: Response) => {
-  const visible = toggleVisibility();
-  console.log("Visibility: ", visible);
-  res.json({ data: { visible }});
+//POST route for showing or hiding estimations
+app.post('/api/visibility', (req: Request, res: Response) => {
+  const { visible } = req.body;
 
-  broadcast({ type: 'VISIBILITY_UPDATED'});
+  if (typeof visible !== 'boolean') {
+    return res.status(400).json({ errors: [{ message: 'visible must be true or false' }] });
+  }
+
+  //Enforced here as well as in the UI, since two people revealing at the same
+  //moment can both pass the client-side check before either request lands.
+  if (visible && !allUsersHaveVoted()) {
+    return res.status(409).json({ errors: [{ message: 'Everyone must vote before revealing' }] });
+  }
+
+  res.json({ data: { visible: setVisibility(visible) }});
+
+  broadcastState();
 })
 
-//Server health check
 const server = app.listen(3000, () => {
   console.log(`Server running on ${styleText(["blue", "bold", "underline"], 'http://localhost:3000')}`);
 });
@@ -84,6 +91,10 @@ const clients: Set<WebSocket> = new Set(); //Use set as clients are always uniqu
 wss.on('connection', (ws) => {
   console.log("A client connected via WebSocket");
   clients.add(ws);
+
+  //Send the current board immediately so a new or reconnecting tab is correct
+  //without having to wait for somebody else to do something.
+  send(ws, { type: 'STATE', state: getState() });
 
   ws.on('close', () => {
     console.log("A client disconnected");
@@ -96,14 +107,9 @@ app.get('/health', (req: Request, res: Response) => {
     res.send('Scrum Poker Backend API is running successfully!');
 });
 
-//GET route to get all users, and check state of visibility
+//GET route for the current board, used for the initial page load
 app.get('/api/users', (req: Request, res: Response) => {
-  res.json({
-    data: {
-      users: getAllUsers(),
-      visible: getVisibility()
-    }
-  });
+  res.json({ data: getState() });
 });
 
 // Catch-all: forward anything unmatched to another port on the same machine
@@ -115,10 +121,23 @@ app.use(
   })
 );
 
-//Broadcasts changes to all connected clients
-function broadcast(message: unknown) {
-  const data = JSON.stringify(message);
-  clients.forEach(client => {
-    client.send(data);
-  });
+//Sends to a single client. A socket that has started closing throws on send, so
+//this is guarded, otherwise one dead connection would abort a whole broadcast
+//and leave every client after it in the set stuck on old state.
+function send(client: WebSocket, message: unknown): void {
+  if (client.readyState !== WebSocket.OPEN) return;
+
+  try {
+    client.send(JSON.stringify(message));
+  }
+  catch (error) {
+    console.error("Failed to send to a client: ", error);
+  }
+}
+
+//Pushes the full board to everyone. The state travels with the message so
+//clients never have to fetch it themselves and can't race each other.
+function broadcastState(): void {
+  const message = { type: 'STATE', state: getState() };
+  clients.forEach(client => send(client, message));
 }
