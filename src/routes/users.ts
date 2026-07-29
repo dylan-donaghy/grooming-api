@@ -98,8 +98,3 @@ export function setVisibility(visible: boolean): boolean {
     }
     return visibleEstimate;
 }
-
-//True only once there is at least one person and everyone present has voted
-export function allUsersHaveVoted(): boolean {
-    return users.length > 0 && users.every(user => user.estimation !== null);
-}

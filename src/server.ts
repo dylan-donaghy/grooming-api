@@ -3,7 +3,7 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import cors from "cors";
-import { addUser, getState, findUser, removeUser, setEstimation, resetAllEstimations, setVisibility, allUsersHaveVoted } from './routes/users.ts'
+import { addUser, getState, findUser, removeUser, setEstimation, resetAllEstimations, setVisibility } from './routes/users.ts'
 import { WebSocketServer, WebSocket } from 'ws';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { styleText } from 'util';
@@ -69,12 +69,6 @@ app.post('/api/visibility', (req: Request, res: Response) => {
 
   if (typeof visible !== 'boolean') {
     return res.status(400).json({ errors: [{ message: 'visible must be true or false' }] });
-  }
-
-  //Enforced here as well as in the UI, since two people revealing at the same
-  //moment can both pass the client-side check before either request lands.
-  if (visible && !allUsersHaveVoted()) {
-    return res.status(409).json({ errors: [{ message: 'Everyone must vote before revealing' }] });
   }
 
   res.json({ data: { visible: setVisibility(visible) }});

@@ -249,11 +249,6 @@ async function deleteEstimates() {
 async function toggleVisibility() {
     const wantVisible = !(board?.visible ?? false);
 
-    if (wantVisible && !allUsersHaveVoted(board?.users ?? [])) {
-        setStatus("Everyone needs to vote before revealing");
-        return;
-    }
-
     try {
         await apiPost<{ visible: boolean }>('/api/visibility', { visible: wantVisible });
         setStatus("");
@@ -274,10 +269,6 @@ async function refreshBoard() {
     }
 }
 
-function allUsersHaveVoted(users: User[]): boolean {
-    return users.length > 0 && users.every(user => user.estimation !== null);
-}
-
 function setStatus(message: string): void {
     if (txtDisplayName) {
         txtDisplayName.innerText = message;
@@ -287,7 +278,7 @@ function setStatus(message: string): void {
 //Paints the whole UI from one snapshot
 function render(state: BoardState) {
     renderCards(state.users);
-    renderRevealButton(state.users, state.visible);
+    renderRevealButton(state.visible);
     createRows(state.users, state.visible);
 }
 
@@ -302,13 +293,10 @@ function renderCards(users: User[]) {
     });
 }
 
-function renderRevealButton(users: User[], visible: boolean) {
+function renderRevealButton(visible: boolean) {
     if (!revealBtn) return;
 
     revealBtn.innerHTML = visible ? 'Hide' : 'Show';
-
-    //Red outline while the room still can't be revealed
-    revealBtn.style.borderColor = visible || allUsersHaveVoted(users) ? '' : '#ef4444';
 }
 
 //Restores a refreshed tab into its existing seat, then opens the connection.
