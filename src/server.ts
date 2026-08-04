@@ -25,7 +25,7 @@ app.post('/api/signup', (req: Request, res: Response) => {
   const user = addUser(name);
 
   res.json({data: {id: user.id, name: user.name}});
-
+  console.log(`${user.name} joined the room` );
   broadcastState();
 });
 
@@ -51,7 +51,7 @@ app.post('/api/estimation', (req: Request, res: Response) => {
   }
 
   res.json({ data: { id: user.id, name: user.name, estimation: user.estimation}});
-
+  console.log(`${user.name} voted ${user.estimation}`);
   broadcastState();
 })
 
@@ -59,7 +59,7 @@ app.post('/api/estimation', (req: Request, res: Response) => {
 app.post('/api/resetEstimation', (req: Request, res: Response ) => {
   resetAllEstimations();
   res.json({ data: getState() });
-
+  console.log(`Estimations Reset`);
   broadcastState();
 });
 
@@ -72,7 +72,7 @@ app.post('/api/visibility', (req: Request, res: Response) => {
   }
 
   res.json({ data: { visible: setVisibility(visible) }});
-
+  console.log(`Visibility toggled: ${visible}`);
   broadcastState();
 })
 
